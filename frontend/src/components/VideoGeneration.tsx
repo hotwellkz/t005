@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react'
 import '../App.css'
 import { apiFetch, apiFetchJson, ApiError, resolveApiUrl } from '../lib/apiClient'
 import { useNotifications } from '../hooks/useNotifications'
-import { useLocalStorage } from '../hooks/useLocalStorage'
-import SkeletonLoader from './SkeletonLoader'
+import { useToast } from '../hooks/useToast'
+import { ToastContainer } from './Toast'
 
 type Language = 'ru' | 'kk' | 'en'
 
@@ -62,8 +62,34 @@ const VideoGeneration: React.FC = () => {
   const [theme, setTheme] = useState<string>('')
   const [ideas, setIdeas] = useState<Idea[]>([])
   const [selectedIdea, setSelectedIdea] = useState<Idea | null>(null)
-  const [veoPrompt, setVeoPrompt] = useState<string>('')
-  const [videoTitle, setVideoTitle] = useState<string>('')
+  // Автосохранение промпта и названия в localStorage
+  const [veoPrompt, setVeoPrompt] = useState<string>(() => {
+    try {
+      return localStorage.getItem('veoPrompt') || ''
+    } catch {
+      return ''
+    }
+  })
+  const [videoTitle, setVideoTitle] = useState<string>(() => {
+    try {
+      return localStorage.getItem('videoTitle') || ''
+    } catch {
+      return ''
+    }
+  })
+  
+  // Автосохранение в localStorage при изменении
+  useEffect(() => {
+    try {
+      localStorage.setItem('veoPrompt', veoPrompt)
+    } catch {}
+  }, [veoPrompt])
+  
+  useEffect(() => {
+    try {
+      localStorage.setItem('videoTitle', videoTitle)
+    } catch {}
+  }, [videoTitle])
   const [videoJobs, setVideoJobs] = useState<VideoJob[]>([])
   const [activeJobsCount, setActiveJobsCount] = useState(0)
   const [maxActiveJobs, setMaxActiveJobs] = useState(2)
@@ -698,7 +724,7 @@ const VideoGeneration: React.FC = () => {
       await fetchVideoJobs()
       
       // Показываем успешное сообщение
-      toast.showSuccess('Задача создана! Видео генерируется...')
+      toast.success('Задача создана! Видео генерируется...')
       setSuccess('')
     } catch (err: any) {
       if (err instanceof ApiError && err.message === 'MAX_ACTIVE_JOBS_REACHED') {
@@ -725,7 +751,7 @@ const VideoGeneration: React.FC = () => {
           videoTitle: jobTitle?.trim() || undefined,
         }),
       })
-      toast.showSuccess('Видео успешно загружено в Google Drive!')
+      toast.success('Видео успешно загружено в Google Drive!')
       setSuccess('')
       
       // Обновляем список задач
@@ -766,7 +792,7 @@ const VideoGeneration: React.FC = () => {
       const result = await response.json()
       console.log(`[VideoJob] Job ${jobId} rejected successfully:`, result)
       
-      toast.showSuccess('Видео отклонено')
+      toast.success('Видео отклонено')
       setSuccess('')
       
       // Обновляем список задач
@@ -942,7 +968,21 @@ const VideoGeneration: React.FC = () => {
           <div className="input-group">
             <label>Выберите канал</label>
             {channelsLoading && (
-              <p style={{ color: '#718096', marginTop: '0.5rem' }}>Загружаем каналы...</p>
+              <div style={{ marginTop: '1rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1rem' }}>
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} style={{ 
+                      padding: '1rem', 
+                      border: '2px solid #e2e8f0', 
+                      borderRadius: '10px',
+                      background: 'linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%)',
+                      backgroundSize: '200% 100%',
+                      animation: 'loading 1.5s ease-in-out infinite',
+                      height: '120px'
+                    }}></div>
+                  ))}
+                </div>
+              </div>
             )}
             {channelsError && (
               <div
