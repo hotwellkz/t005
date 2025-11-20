@@ -1,7 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import '../App.css'
 import { apiFetch, apiFetchJson, ApiError, resolveApiUrl } from '../lib/apiClient'
 import { useNotifications } from '../hooks/useNotifications'
+import { useLocalStorage } from '../hooks/useLocalStorage'
+import SkeletonLoader from './SkeletonLoader'
 
 type Language = 'ru' | 'kk' | 'en'
 
@@ -99,8 +101,58 @@ const VideoGeneration: React.FC = () => {
   // Хук для уведомлений
   const notifications = useNotifications()
   
+  // Хук для Toast-уведомлений
+  const toast = useToast()
+  
   // Храним предыдущее состояние задач для отслеживания изменений статусов
   const previousJobsRef = useRef<Map<string, VideoJobStatus>>(new Map())
+  
+  // Фильтрация и сортировка задач
+  const [filterStatus, setFilterStatus] = useState<VideoJobStatus | 'all'>('all')
+  const [sortBy, setSortBy] = useState<'date' | 'status'>('date')
+  const [searchQuery, setSearchQuery] = useState<string>('')
+  
+  // Фильтрованные и отсортированные задачи
+  const filteredAndSortedJobs = useMemo(() => {
+    let filtered = [...videoJobs]
+    
+    // Фильтр по статусу
+    if (filterStatus !== 'all') {
+      filtered = filtered.filter(job => job.status === filterStatus)
+    }
+    
+    // Поиск по названию или промпту
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase()
+      filtered = filtered.filter(job => 
+        (job.videoTitle?.toLowerCase().includes(query)) ||
+        (job.prompt.toLowerCase().includes(query))
+      )
+    }
+    
+    // Сортировка
+    filtered.sort((a, b) => {
+      if (sortBy === 'date') {
+        return b.createdAt - a.createdAt // Новые сначала
+      } else {
+        // Сортировка по статусу: активные сначала, затем готовые, затем остальные
+        const statusOrder: Record<VideoJobStatus, number> = {
+          queued: 1,
+          sending: 2,
+          waiting_video: 3,
+          downloading: 4,
+          uploading: 5,
+          ready: 6,
+          uploaded: 7,
+          rejected: 8,
+          error: 9,
+        }
+        return statusOrder[a.status] - statusOrder[b.status]
+      }
+    })
+    
+    return filtered
+  }, [videoJobs, filterStatus, sortBy, searchQuery])
 
   useEffect(() => {
     fetchChannels()
@@ -646,7 +698,8 @@ const VideoGeneration: React.FC = () => {
       await fetchVideoJobs()
       
       // Показываем успешное сообщение
-      setSuccess('Задача создана! Видео генерируется...')
+      toast.showSuccess('Задача создана! Видео генерируется...')
+      setSuccess('')
     } catch (err: any) {
       if (err instanceof ApiError && err.message === 'MAX_ACTIVE_JOBS_REACHED') {
         setError(`Уже генерируются ${maxActiveJobs} видео. Подождите, пока одно завершится.`)
@@ -672,7 +725,8 @@ const VideoGeneration: React.FC = () => {
           videoTitle: jobTitle?.trim() || undefined,
         }),
       })
-      setSuccess('Видео успешно загружено в Google Drive!')
+      toast.showSuccess('Видео успешно загружено в Google Drive!')
+      setSuccess('')
       
       // Обновляем список задач
       await fetchVideoJobs()
@@ -684,6 +738,14 @@ const VideoGeneration: React.FC = () => {
   }
 
   const handleRejectJob = async (jobId: string) => {
+    // Подтверждение перед отклонением
+    const job = videoJobs.find(j => j.id === jobId)
+    const jobName = job?.videoTitle || job?.prompt.substring(0, 50) || 'это видео'
+    
+    if (!window.confirm(`Вы уверены, что хотите отклонить "${jobName}"? Это действие нельзя отменить.`)) {
+      return
+    }
+    
     // Блокируем кнопку для этой конкретной задачи
     setRejectingJobId(jobId)
     setError('')
@@ -704,7 +766,8 @@ const VideoGeneration: React.FC = () => {
       const result = await response.json()
       console.log(`[VideoJob] Job ${jobId} rejected successfully:`, result)
       
-      setSuccess('Видео отклонено')
+      toast.showSuccess('Видео отклонено')
+      setSuccess('')
       
       // Обновляем список задач
       await fetchVideoJobs()
@@ -867,6 +930,9 @@ const VideoGeneration: React.FC = () => {
         </div>
       </div>
 
+      {/* Toast Container */}
+      <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
+      
       {error && <div className="error">{error}</div>}
       {success && <div className="success">{success}</div>}
 
@@ -1555,12 +1621,48 @@ const VideoGeneration: React.FC = () => {
 
           {/* Список задач */}
           <div style={{ marginTop: '2rem' }}>
-            <h3>Текущие и последние генерации ({activeJobsCount}/{maxActiveJobs} активных)</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
+              <h3 style={{ margin: 0 }}>Текущие и последние генерации ({activeJobsCount}/{maxActiveJobs} активных)</h3>
+              
+              {/* Фильтры и поиск */}
+              {videoJobs.length > 0 && (
+                <div className="filter-sort-controls">
+                  <input
+                    type="text"
+                    placeholder="🔍 Поиск по названию или промпту..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{ flex: 1, minWidth: '200px' }}
+                  />
+                  <select
+                    value={filterStatus}
+                    onChange={(e) => setFilterStatus(e.target.value as VideoJobStatus | 'all')}
+                  >
+                    <option value="all">Все статусы</option>
+                    <option value="ready">Готово</option>
+                    <option value="waiting_video">Ожидание</option>
+                    <option value="downloading">Скачивание</option>
+                    <option value="uploaded">Загружено</option>
+                    <option value="error">Ошибки</option>
+                  </select>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as 'date' | 'status')}
+                  >
+                    <option value="date">По дате</option>
+                    <option value="status">По статусу</option>
+                  </select>
+                </div>
+              )}
+            </div>
+            
             {videoJobs.length === 0 ? (
               <p style={{ color: '#718096', marginTop: '0.75rem' }}>Задачи ещё не создавались.</p>
+            ) : filteredAndSortedJobs.length === 0 ? (
+              <p style={{ color: '#718096', marginTop: '0.75rem' }}>Задачи не найдены по заданным фильтрам.</p>
             ) : (
               <div className="job-list">
-                {videoJobs.map((job) => {
+                {filteredAndSortedJobs.map((job) => {
                   const isActive = ['queued', 'sending', 'waiting_video', 'downloading', 'uploading'].includes(job.status)
                   const canApprove = job.status === 'ready'
                   

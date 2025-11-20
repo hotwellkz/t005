@@ -34,12 +34,57 @@ export function resolveApiUrl(path: string): string {
   return API_BASE_URL ? `${API_BASE_URL}${normalizedPath}` : normalizedPath
 }
 
+/**
+ * Выполнить запрос с retry механизмом
+ */
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries = 3,
+  retryDelay = 1000
+): Promise<Response> {
+  let lastError: unknown
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options)
+      
+      // Если успешный ответ или ошибка 4xx (клиентская) - не повторяем
+      if (response.ok || (response.status >= 400 && response.status < 500)) {
+        return response
+      }
+      
+      // Для 5xx ошибок пробуем повторить
+      if (response.status >= 500) {
+        lastError = new Error(`Server error: ${response.status}`)
+        if (attempt < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, retryDelay * (attempt + 1)))
+          continue
+        }
+      }
+      
+      return response
+    } catch (error) {
+      lastError = error
+      
+      // Для сетевых ошибок пробуем повторить
+      if (attempt < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, retryDelay * (attempt + 1)))
+        continue
+      }
+    }
+  }
+
+  throw lastError
+}
+
 export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const targetUrl = resolveApiUrl(path)
 
   let response: Response
   try {
-    response = await fetch(targetUrl, options)
+    // Используем retry механизм для сетевых и серверных ошибок
+    response = await fetchWithRetry(targetUrl, options)
   } catch (error) {
     throw new ApiError('NETWORK_ERROR', undefined, undefined, true, error)
   }
