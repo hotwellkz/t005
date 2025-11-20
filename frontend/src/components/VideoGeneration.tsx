@@ -775,19 +775,41 @@ const VideoGeneration: React.FC = () => {
 
   const handleDeleteJob = async (jobId: string) => {
     try {
+      console.log('[Delete] Starting deletion of job:', jobId)
+      
+      // Оптимистичное обновление: сразу убираем из списка
+      setVideoJobs((prev) => {
+        const filtered = prev.filter((job) => job.id !== jobId)
+        // Пересчитываем активные задачи
+        const removedJob = prev.find((j) => j.id === jobId)
+        if (removedJob && ['queued', 'sending', 'waiting_video', 'downloading', 'uploading'].includes(removedJob.status)) {
+          setActiveJobsCount((current) => Math.max(0, current - 1))
+        }
+        return filtered
+      })
+      
       const response = await apiFetch(`/api/video-jobs/${jobId}`, {
         method: 'DELETE',
       })
       
       if (!response.ok) {
+        // Если удаление не удалось, обновляем список заново
+        await fetchVideoJobs()
         const errorData = await response.json().catch(() => ({}))
         throw new Error(errorData.message || errorData.error || `Ошибка ${response.status}`)
       }
       
+      const result = await response.json()
+      console.log('[Delete] Job deleted successfully:', result)
+      
       toast.success('Задача удалена')
+      
+      // Обновляем список для синхронизации (на случай если были другие изменения)
       await fetchVideoJobs()
     } catch (err: any) {
       console.error(`[VideoJob] Error deleting job ${jobId}:`, err)
+      // Восстанавливаем список в случае ошибки
+      await fetchVideoJobs()
       toast.error(err.message || 'Не удалось удалить задачу')
     }
   }

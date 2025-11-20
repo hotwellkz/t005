@@ -157,6 +157,18 @@ export function useVideoJobs(options: UseVideoJobsOptions = {}) {
     return fetchVideoJobs()
   }, [fetchVideoJobs])
 
+  const removeJob = useCallback((jobId: string) => {
+    setVideoJobs((prev) => prev.filter((job) => job.id !== jobId))
+    // Пересчитываем активные задачи
+    setActiveJobsCount((prev) => {
+      const removedJob = videoJobs.find((j) => j.id === jobId)
+      if (removedJob && ['queued', 'sending', 'waiting_video', 'downloading', 'uploading'].includes(removedJob.status)) {
+        return Math.max(0, prev - 1)
+      }
+      return prev
+    })
+  }, [videoJobs])
+
   return {
     videoJobs,
     activeJobsCount,
@@ -164,6 +176,7 @@ export function useVideoJobs(options: UseVideoJobsOptions = {}) {
     loading,
     error,
     refreshJobs,
+    removeJob,
   }
 }
 

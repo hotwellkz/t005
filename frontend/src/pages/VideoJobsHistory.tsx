@@ -17,6 +17,7 @@ const VideoJobsHistory: React.FC = () => {
     loading,
     error,
     refreshJobs,
+    removeJob,
   } = useVideoJobs({
     channelId: null, // null означает загрузить все задачи
     autoPoll: true,
@@ -71,18 +72,33 @@ const VideoJobsHistory: React.FC = () => {
 
   const handleDeleteJob = async (jobId: string) => {
     try {
+      console.log('[Delete] Starting deletion of job:', jobId)
+      
+      // Оптимистичное обновление: сразу убираем из списка
+      removeJob(jobId)
+      
       const response = await apiFetch(`/api/video-jobs/${jobId}`, {
         method: 'DELETE',
       })
       
       if (!response.ok) {
+        // Если удаление не удалось, обновляем список заново
+        await refreshJobs()
         const errorData = await response.json().catch(() => ({}))
         throw new Error(errorData.message || errorData.error || `Ошибка ${response.status}`)
       }
       
+      const result = await response.json()
+      console.log('[Delete] Job deleted successfully:', result)
+      
       toast.success('Задача удалена')
+      
+      // Обновляем список для синхронизации (на случай если были другие изменения)
       await refreshJobs()
     } catch (err: any) {
+      console.error('[Delete] Error deleting job:', err)
+      // Восстанавливаем список в случае ошибки
+      await refreshJobs()
       toast.error(err.message || 'Не удалось удалить задачу')
     }
   }

@@ -98,14 +98,27 @@ export const SwipeableJobCard: React.FC<SwipeableJobCardProps> = ({
   }
 
   // Обработка клика на кнопку удаления
-  const handleDeleteClick = () => {
+  const handleDeleteClick = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    console.log('[SwipeableJobCard] Delete button clicked for job:', job.id)
     setShowDeleteConfirm(true)
   }
 
   // Подтверждение удаления
   const handleConfirmDelete = async () => {
+    console.log('[SwipeableJobCard] Confirm delete for job:', job.id, 'onDelete:', !!onDelete)
     if (onDelete) {
-      await onDelete(job.id)
+      try {
+        await onDelete(job.id)
+        console.log('[SwipeableJobCard] Delete completed for job:', job.id)
+      } catch (error) {
+        console.error('[SwipeableJobCard] Error in onDelete:', error)
+        // Не закрываем модалку при ошибке, чтобы пользователь мог попробовать снова
+        return
+      }
+    } else {
+      console.warn('[SwipeableJobCard] onDelete handler not provided')
     }
     setShowDeleteConfirm(false)
     setSwipeOffset(0)
@@ -180,7 +193,11 @@ export const SwipeableJobCard: React.FC<SwipeableJobCardProps> = ({
             {/* Кнопка удаления для десктопа */}
             <button
               className="job-card__delete-desktop"
-              onClick={handleDeleteClick}
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                handleDeleteClick(e)
+              }}
               title="Удалить задачу"
               aria-label="Удалить задачу"
             >
@@ -277,11 +294,17 @@ export const SwipeableJobCard: React.FC<SwipeableJobCardProps> = ({
           style={{
             opacity: swipeOffset < -SWIPE_THRESHOLD ? 1 : 0,
             transform: `translateX(${Math.max(0, swipeOffset + MAX_SWIPE)}px)`,
+            pointerEvents: swipeOffset < -SWIPE_THRESHOLD ? 'auto' : 'none',
           }}
         >
           <button
             className="swipeable-job-card__delete-button"
             onClick={handleDeleteClick}
+            onTouchEnd={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              handleDeleteClick(e)
+            }}
             aria-label="Удалить задачу"
           >
             Удалить
