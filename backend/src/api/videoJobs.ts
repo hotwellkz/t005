@@ -48,19 +48,24 @@ async function processVideoGeneration(jobId: string): Promise<void> {
     updateJob(jobId, { status: "waiting_video" });
     console.log(`[VideoJob] Job ${jobId}: waiting for video from Syntx`);
 
-    // Отправляем промпт в Syntx AI и ждём видео
-    // Передаём jobId для маркировки промпта
-    const syntxResult = await sendPromptToSyntx(
-      job.prompt, 
-      safeFileName, 
-      job.id, // jobId для поиска видео
-      job.telegramRequestMessageId // legacy: для обратной совместимости
-    );
+    const syntxResult = await sendPromptToSyntx(job.prompt, {
+      customFileName: safeFileName,
+      jobId: job.jobId || job.id,
+      jobCreatedAt: job.createdAt,
+      requestMessageId: job.telegramRequestMessageId,
+    });
 
     // Сохраняем requestMessageId и videoMessageId для связи с ответом
     await updateJob(jobId, { 
       telegramRequestMessageId: syntxResult.requestMessageId,
       telegramVideoMessageId: syntxResult.videoMessageId,
+      matchingMethod: syntxResult.matchingMethod,
+      debugLogs: {
+        last_worker_run: Date.now(),
+        total_messages_scanned: syntxResult.totalMessagesScanned,
+        last_found_job: jobId,
+        last_method: syntxResult.matchingMethod,
+      },
     });
     console.log(`[VideoJob] Job ${jobId}: saved telegramRequestMessageId: ${syntxResult.requestMessageId}, telegramVideoMessageId: ${syntxResult.videoMessageId}`);
 

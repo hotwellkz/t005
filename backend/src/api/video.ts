@@ -31,7 +31,12 @@ router.post("/generate", async (req: Request, res: Response) => {
       const safeFileName = videoTitle ? getSafeFileName(videoTitle) : undefined;
       
       // Отправляем промпт в Syntx AI с указанием имени файла
-      const syntxResult = await sendPromptToSyntx(veoprompt, safeFileName);
+      const syntxResult = await sendPromptToSyntx(veoprompt, {
+        customFileName: safeFileName,
+        jobId: job.jobId || job.id,
+        jobCreatedAt: job.createdAt,
+        requestMessageId: job.telegramRequestMessageId,
+      });
       const localPath = syntxResult.localPath;
 
       // Обновляем job
@@ -267,7 +272,12 @@ router.post("/jobs/:id/regenerate", async (req: Request, res: Response) => {
       const safeFileName = newJob.videoTitle ? getSafeFileName(newJob.videoTitle) : undefined;
       
       // Генерируем новое видео
-      const syntxResult = await sendPromptToSyntx(veoprompt, safeFileName);
+      const syntxResult = await sendPromptToSyntx(veoprompt, {
+        customFileName: safeFileName,
+        jobId: newJob.jobId || newJob.id,
+        jobCreatedAt: newJob.createdAt,
+        requestMessageId: newJob.telegramRequestMessageId,
+      });
       const localPath = syntxResult.localPath;
 
       await updateJob(newJob.id, {

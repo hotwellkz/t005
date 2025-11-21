@@ -28,6 +28,9 @@ export async function createJob(job: VideoJob): Promise<VideoJob> {
       errorMessage: job.errorMessage || null,
       telegramRequestMessageId: job.telegramRequestMessageId || null,
       telegramVideoMessageId: job.telegramVideoMessageId || null,
+      jobId: job.jobId,
+      matchingMethod: job.matchingMethod || null,
+      debugLogs: job.debugLogs || null,
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
     });
@@ -52,10 +55,12 @@ export async function getJob(id: string): Promise<VideoJob | undefined> {
       return undefined;
     }
 
-    return {
+    const job = {
       id: doc.id,
       ...doc.data(),
     } as VideoJob;
+    job.jobId = job.jobId || doc.id;
+    return job;
   } catch (error: unknown) {
     console.error(`[Firebase] Error getting job ${id}:`, error);
     throw new Error(`Ошибка получения задачи: ${error instanceof Error ? error.message : String(error)}`);
@@ -97,6 +102,7 @@ export async function updateJob(id: string, updates: Partial<VideoJob>): Promise
       id: updatedDoc.id,
       ...updatedDoc.data(),
     } as VideoJob;
+    updatedJob.jobId = updatedJob.jobId || updatedDoc.id;
     
     console.log(`[Firebase] ✅ Job ${id} updated successfully, new status: ${updatedJob.status}`);
     return updatedJob;
@@ -182,10 +188,12 @@ export async function getAllJobs(channelId?: string): Promise<VideoJob[]> {
     const jobs: VideoJob[] = [];
     
     snapshot.forEach((doc) => {
-      jobs.push({
+      const job = {
         id: doc.id,
         ...doc.data(),
-      } as VideoJob);
+      } as VideoJob;
+      job.jobId = job.jobId || doc.id;
+      jobs.push(job);
     });
 
     return jobs;

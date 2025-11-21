@@ -10,8 +10,18 @@ export type VideoJobStatus =
   | "syntax_timeout"   // Таймаут ожидания видео от Syntax
   | "error";           // Ошибка
 
+export type MatchingMethod = "jobId" | "timestamp";
+
+export interface VideoJobDebugLogs {
+  last_worker_run?: number;
+  total_messages_scanned?: number;
+  last_found_job?: string;
+  last_method?: MatchingMethod;
+}
+
 export interface VideoJob {
   id: string;
+  jobId: string;
   prompt: string;
   channelId?: string;
   channelName?: string; // Название канала для удобства
@@ -28,6 +38,8 @@ export interface VideoJob {
   errorMessage?: string; // Сообщение об ошибке
   telegramRequestMessageId?: number; // ID сообщения, отправленного в Telegram (для связи с ответом)
   telegramVideoMessageId?: number; // ID сообщения с видео от бота (для предотвращения дубликатов)
+  matchingMethod?: MatchingMethod; // Каким способом найдено видео
+  debugLogs?: VideoJobDebugLogs; // Отладочная информация по воркеру
   createdAt: number;
   updatedAt: number; // Время последнего обновления
 }
@@ -67,8 +79,10 @@ export async function createJob(
   videoTitle?: string
 ): Promise<VideoJob> {
   const now = Date.now();
+  const id = generateJobId();
   const job: VideoJob = {
-    id: generateJobId(),
+    id,
+    jobId: id,
     prompt,
     channelId,
     channelName,
