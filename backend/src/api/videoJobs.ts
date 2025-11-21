@@ -47,9 +47,12 @@ async function processVideoGeneration(jobId: string): Promise<void> {
     const existingRequestMessageId = job.telegramRequestMessageId;
     const syntxResult = await sendPromptToSyntx(job.prompt, safeFileName, existingRequestMessageId);
 
-    // Сохраняем requestMessageId для связи с ответом
-    await updateJob(jobId, { telegramRequestMessageId: syntxResult.requestMessageId });
-    console.log(`[VideoJob] Job ${jobId}: saved telegramRequestMessageId: ${syntxResult.requestMessageId}`);
+    // Сохраняем requestMessageId и videoMessageId для связи с ответом
+    await updateJob(jobId, { 
+      telegramRequestMessageId: syntxResult.requestMessageId,
+      telegramVideoMessageId: syntxResult.videoMessageId,
+    });
+    console.log(`[VideoJob] Job ${jobId}: saved telegramRequestMessageId: ${syntxResult.requestMessageId}, telegramVideoMessageId: ${syntxResult.videoMessageId}`);
 
     // Статус: downloading - скачивание
     await updateJob(jobId, { status: "downloading" });

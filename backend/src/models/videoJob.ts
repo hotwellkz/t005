@@ -26,6 +26,7 @@ export interface VideoJob {
   webContentLink?: string;
   errorMessage?: string; // Сообщение об ошибке
   telegramRequestMessageId?: number; // ID сообщения, отправленного в Telegram (для связи с ответом)
+  telegramVideoMessageId?: number; // ID сообщения с видео от бота (для предотвращения дубликатов)
   createdAt: number;
   updatedAt: number; // Время последнего обновления
 }

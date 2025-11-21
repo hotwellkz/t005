@@ -44,12 +44,16 @@ export async function sendPromptToSyntx(
 
     console.log(`[Syntx] Ожидаем видео (таймаут: 15 минут)...`);
 
+    // Получаем список уже использованных видео для предотвращения дубликатов
+    const usedVideoMessageIds = await getUsedVideoMessageIds();
+
     // Ждём видеосообщение, связанное с нашим запросом через reply_to_message_id
     const videoMessage = await waitForSyntxVideo(
       client,
       entity,
       actualRequestMessageId,
-      15 * 60 * 1000 // 15 минут
+      15 * 60 * 1000, // 15 минут
+      usedVideoMessageIds
     );
 
     // Подготавливаем директорию для загрузок с абсолютным путём
@@ -104,6 +108,7 @@ export async function sendPromptToSyntx(
       return {
         localPath: filePath,
         requestMessageId: actualRequestMessageId,
+        videoMessageId: videoMessage.id,
       };
     } catch (err: any) {
       console.error("[Syntx] Error while downloading media (file mode):", err);
@@ -130,6 +135,7 @@ export async function sendPromptToSyntx(
         return {
           localPath: filePath,
           requestMessageId: actualRequestMessageId,
+          videoMessageId: videoMessage.id,
         };
       } catch (bufferErr: any) {
         console.error("[Syntx] Error while downloading media (buffer mode):", bufferErr);
@@ -152,13 +158,17 @@ async function waitForSyntxVideo(
   client: TelegramClient,
   chat: Api.TypeEntityLike,
   requestMessageId: number,
-  timeoutMs: number
+  timeoutMs: number,
+  usedVideoMessageIds?: Set<number> // Множество уже использованных message_id видео
 ): Promise<Api.Message> {
   const startTime = Date.now();
   const pollInterval = 10000; // 10 секунд
   const botUsername = process.env.SYNTX_BOT_USERNAME || "syntxaibot";
 
   console.log(`[Syntx] Ожидаем видео с reply_to_message_id = ${requestMessageId}`);
+  if (usedVideoMessageIds && usedVideoMessageIds.size > 0) {
+    console.log(`[Syntx] Исключаем уже использованные видео: ${Array.from(usedVideoMessageIds).join(', ')}`);
+  }
 
   while (Date.now() - startTime < timeoutMs) {
     try {
@@ -167,7 +177,9 @@ async function waitForSyntxVideo(
         limit: 50, // Увеличиваем лимит для надёжности
       });
 
-      // Ищем видеосообщение, которое является ответом на наш запрос
+      // Фильтруем сообщения с видео от бота
+      const videoMessages: Api.Message[] = [];
+      
       for (const message of messages) {
         // Проверяем, что сообщение от бота (не от нас)
         const fromId = message.fromId;
@@ -188,28 +200,6 @@ async function waitForSyntxVideo(
           }
         }
 
-        // КРИТИЧНО: Проверяем, что сообщение является ответом на наш запрос
-        // Используем reply_to для точного сопоставления
-        const replyTo = message.replyTo;
-        if (replyTo && replyTo.replyToMsgId) {
-          const replyToMsgId = replyTo.replyToMsgId;
-          if (replyToMsgId !== requestMessageId) {
-            // Это ответ на другое сообщение, пропускаем
-            continue;
-          }
-        } else {
-          // Если у сообщения нет reply_to, но оно новее нашего запроса,
-          // это может быть ответ (некоторые боты не используют reply_to).
-          // В таком случае проверяем, что сообщение идёт после нашего запроса
-          if (message.id <= requestMessageId) {
-            continue;
-          }
-          // Дополнительная проверка: если сообщение намного новее (более 5 минут),
-          // скорее всего это не ответ на наш запрос
-          // Но для надёжности оставляем эту логику как fallback
-          console.log(`[Syntx] Сообщение ${message.id} не имеет reply_to, но новее запроса ${requestMessageId}. Проверяем как fallback.`);
-        }
-
         // Проверяем, есть ли видео
         if (message.media) {
           if (message.media instanceof Api.MessageMediaDocument) {
@@ -217,15 +207,70 @@ async function waitForSyntxVideo(
             if (document instanceof Api.Document) {
               for (const attr of document.attributes) {
                 if (attr instanceof Api.DocumentAttributeVideo) {
-                  console.log(`[Syntx] ✅ Видео получено от бота ${botUsername}, message ID: ${message.id}, reply_to: ${replyTo?.replyToMsgId || 'none'}`);
-                  console.log(`[Syntx] Video info: duration=${attr.duration}s, size=${document.size} bytes`);
-                  return message as Api.Message;
+                  // Проверяем, что это видео не было уже использовано
+                  if (usedVideoMessageIds && usedVideoMessageIds.has(message.id)) {
+                    console.log(`[Syntx] Пропускаем уже использованное видео с message ID: ${message.id}`);
+                    continue;
+                  }
+                  videoMessages.push(message as Api.Message);
+                  break;
                 }
               }
             }
           } else if (message.media instanceof Api.MessageMediaPhoto) {
             // Пропускаем фото
             continue;
+          }
+        }
+      }
+
+      // Сортируем видео по ID (более новые первыми)
+      videoMessages.sort((a, b) => b.id - a.id);
+
+      // Ищем видео, которое является ответом на наш запрос
+      for (const message of videoMessages) {
+        const replyTo = message.replyTo;
+        
+        // Приоритет 1: Проверяем reply_to для точного сопоставления
+        if (replyTo && replyTo.replyToMsgId) {
+          const replyToMsgId = replyTo.replyToMsgId;
+          if (replyToMsgId === requestMessageId) {
+            console.log(`[Syntx] ✅ Видео найдено по reply_to: message ID: ${message.id}, reply_to: ${replyToMsgId}`);
+            const document = (message.media as Api.MessageMediaDocument).document as Api.Document;
+            for (const attr of document.attributes) {
+              if (attr instanceof Api.DocumentAttributeVideo) {
+                console.log(`[Syntx] Video info: duration=${attr.duration}s, size=${document.size} bytes`);
+                return message;
+              }
+            }
+          }
+        }
+      }
+
+      // Приоритет 2: Если не нашли по reply_to, используем временную логику для параллельных генераций
+      // Берем самое новое видео, которое новее нашего запроса и еще не использовано
+      // Это работает только если сообщение новее запроса (message.id > requestMessageId)
+      // и если нет других активных задач, ожидающих видео
+      for (const message of videoMessages) {
+        if (message.id > requestMessageId) {
+          // Проверяем, что это видео не слишком старое (не более 20 минут назад)
+          // Это помогает избежать присвоения старых видео новым запросам
+          const messageDate = message.date ? message.date.getTime() : 0;
+          const maxAge = 20 * 60 * 1000; // 20 минут
+          if (Date.now() - messageDate > maxAge) {
+            console.log(`[Syntx] Пропускаем слишком старое видео: message ID: ${message.id}, возраст: ${Math.round((Date.now() - messageDate) / 1000 / 60)} минут`);
+            continue;
+          }
+
+          // Если у сообщения нет reply_to, но оно новее запроса и не использовано,
+          // это может быть ответ на наш запрос (если бот не использует reply_to)
+          console.log(`[Syntx] ⚠️  Видео ${message.id} не имеет reply_to, но новее запроса ${requestMessageId}. Используем как fallback.`);
+          const document = (message.media as Api.MessageMediaDocument).document as Api.Document;
+          for (const attr of document.attributes) {
+            if (attr instanceof Api.DocumentAttributeVideo) {
+              console.log(`[Syntx] Video info: duration=${attr.duration}s, size=${document.size} bytes`);
+              return message;
+            }
           }
         }
       }
@@ -241,5 +286,29 @@ async function waitForSyntxVideo(
   throw new Error(
     `Таймаут ожидания видео от бота ${botUsername} для запроса ${requestMessageId} (${timeoutMs / 1000} секунд)`
   );
+}
+
+/**
+ * Получить множество уже использованных video message IDs из Firestore
+ * Это предотвращает скачивание одного и того же видео для разных задач
+ */
+async function getUsedVideoMessageIds(): Promise<Set<number>> {
+  try {
+    const jobs = await getAllJobs();
+    const usedIds = new Set<number>();
+    
+    for (const job of jobs) {
+      if (job.telegramVideoMessageId) {
+        usedIds.add(job.telegramVideoMessageId);
+      }
+    }
+    
+    console.log(`[Syntx] Найдено ${usedIds.size} уже использованных video message IDs`);
+    return usedIds;
+  } catch (error) {
+    console.error("[Syntx] Ошибка при получении использованных video message IDs:", error);
+    // В случае ошибки возвращаем пустое множество, чтобы не блокировать процесс
+    return new Set<number>();
+  }
 }
 
